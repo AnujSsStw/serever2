@@ -55,6 +55,11 @@ __decorate([
     __metadata("design:type", Array)
 ], Posts.prototype, "votes", void 0);
 __decorate([
+    (0, type_graphql_1.Field)({ nullable: true }),
+    (0, typeorm_1.Column)({ nullable: true }),
+    __metadata("design:type", String)
+], Posts.prototype, "img_url", void 0);
+__decorate([
     (0, type_graphql_1.Field)(() => String),
     (0, typeorm_1.CreateDateColumn)(),
     __metadata("design:type", Date)

@@ -45,6 +45,10 @@ export class Posts extends BaseEntity {
   @OneToMany(() => Vote, (vote) => vote.post)
   votes: Vote[];
 
+  @Field({ nullable: true })
+  @Column({ nullable: true })
+  img_url: string;
+
   @Field(() => String)
   @CreateDateColumn()
   createdAt: Date;

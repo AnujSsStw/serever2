@@ -28,6 +28,10 @@ __decorate([
     (0, type_graphql_1.Field)(),
     __metadata("design:type", String)
 ], postInput.prototype, "discription", void 0);
+__decorate([
+    (0, type_graphql_1.Field)({ nullable: true }),
+    __metadata("design:type", String)
+], postInput.prototype, "img_url", void 0);
 postInput = __decorate([
     (0, type_graphql_1.InputType)()
 ], postInput);
@@ -45,10 +49,17 @@ PaginatedPosts = __decorate([
     (0, type_graphql_1.ObjectType)()
 ], PaginatedPosts);
 let PostResolver = class PostResolver {
+    async singlePost(id) {
+        return await Post_1.Posts.findOne({
+            where: {
+                id,
+            },
+        });
+    }
     async vote(vote, postId, { req }) {
         const user_id = req.session.userId;
         let realVote2;
-        if (vote >= 1) {
+        if (vote == 1) {
             realVote2 = 1;
         }
         else {
@@ -57,19 +68,19 @@ let PostResolver = class PostResolver {
         const firstTimeORnot = await Vote_1.Vote.findOne({
             where: { userId: user_id, postId },
         });
-        if (firstTimeORnot && firstTimeORnot.value !== realVote2) {
+        if (firstTimeORnot && firstTimeORnot.value === realVote2) {
             console.log("you voted already and you are changing your vote");
             await typeormConfig_1.connection.transaction(async (tm) => {
                 await tm.query(`
             update vote
             set value = $1 
             where "postId" = $2 and "userId" = $3      
-          `, [realVote2, postId, user_id]);
+          `, [0, postId, user_id]);
                 await tm.query(`
             update posts
             set points = points + $1
             where id = $2
-          `, [2 * realVote2, postId]);
+          `, [realVote2, postId]);
             });
         }
         else if (!firstTimeORnot) {
@@ -144,7 +155,54 @@ let PostResolver = class PostResolver {
         }
         return a === null || a === void 0 ? void 0 : a.value;
     }
+    async SearchPost(query) {
+        const formattedQuery = query.trim().replace(/ /g, " & ");
+        const blogs = await typeormConfig_1.connection
+            .getRepository(Post_1.Posts)
+            .createQueryBuilder()
+            .select("posts")
+            .from(Post_1.Posts, "posts")
+            .where(`to_tsvector(posts.title) @@ to_tsquery(:query)`, {
+            query: `${formattedQuery}:*`,
+        })
+            .getMany();
+        return blogs;
+    }
+    async sortedPosts(limit, cursor) {
+        const realLimit = Math.min(50, limit);
+        const checkForHasMore = realLimit + 1;
+        const param = [checkForHasMore];
+        if (cursor) {
+            param.push(new Date(parseInt(cursor)));
+        }
+        const posts = await typeormConfig_1.connection.query(`
+      select p.*,
+      json_build_object(
+        'id', u.id,
+        'username', u.username,
+        'email', u.email,
+        'createdAt', u."createdAt",
+        'updatedAt', u."updatedAt"
+        ) creator
+      from posts p
+      inner join public.user u on u.id = p."creatorId"
+      ${cursor ? `where p."createdAt" < $2` : ""}
+      order by p."points" DESC
+      limit $1
+    `, param);
+        return {
+            posts: posts.slice(0, realLimit),
+            hasMore: posts.length === checkForHasMore,
+        };
+    }
 };
+__decorate([
+    (0, type_graphql_1.Query)(() => Post_1.Posts),
+    __param(0, (0, type_graphql_1.Arg)("id")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], PostResolver.prototype, "singlePost", null);
 __decorate([
     (0, type_graphql_1.Mutation)(() => Boolean),
     __param(0, (0, type_graphql_1.Arg)("vote")),
@@ -194,6 +252,21 @@ __decorate([
     __metadata("design:paramtypes", [Object, Post_1.Posts]),
     __metadata("design:returntype", Promise)
 ], PostResolver.prototype, "vote_status", null);
+__decorate([
+    (0, type_graphql_1.Query)(() => [Post_1.Posts]),
+    __param(0, (0, type_graphql_1.Arg)("query")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", Promise)
+], PostResolver.prototype, "SearchPost", null);
+__decorate([
+    (0, type_graphql_1.Query)(() => PaginatedPosts),
+    __param(0, (0, type_graphql_1.Arg)("limit", () => type_graphql_1.Int)),
+    __param(1, (0, type_graphql_1.Arg)("cursor", () => String, { nullable: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Number, Object]),
+    __metadata("design:returntype", Promise)
+], PostResolver.prototype, "sortedPosts", null);
 PostResolver = __decorate([
     (0, type_graphql_1.Resolver)(Post_1.Posts)
 ], PostResolver);

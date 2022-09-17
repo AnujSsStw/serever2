@@ -25,6 +25,9 @@ class postInput {
 
   @Field()
   discription: string;
+
+  @Field({ nullable: true })
+  img_url: string;
 }
 
 // const sleep = (a: number) => new Promise((res) => setTimeout(res, a));
@@ -40,6 +43,15 @@ class PaginatedPosts {
 
 @Resolver(Posts)
 export class PostResolver {
+  @Query(() => Posts)
+  async singlePost(@Arg("id") id: string) {
+    return await Posts.findOne({
+      where: {
+        id,
+      },
+    });
+  }
+
   @Mutation(() => Boolean)
   async vote(
     @Arg("vote") vote: number,
@@ -48,7 +60,7 @@ export class PostResolver {
   ) {
     const user_id: string = req.session.userId;
     let realVote2: number;
-    if (vote >= 1) {
+    if (vote == 1) {
       realVote2 = 1;
     } else {
       realVote2 = -1;
@@ -59,7 +71,7 @@ export class PostResolver {
       where: { userId: user_id, postId },
     });
 
-    if (firstTimeORnot && firstTimeORnot.value !== realVote2) {
+    if (firstTimeORnot && firstTimeORnot.value === realVote2) {
       console.log("you voted already and you are changing your vote");
 
       await connection.transaction(async (tm) => {
@@ -69,7 +81,7 @@ export class PostResolver {
             set value = $1 
             where "postId" = $2 and "userId" = $3      
           `,
-          [realVote2, postId, user_id]
+          [0, postId, user_id]
         );
 
         await tm.query(
@@ -78,7 +90,7 @@ export class PostResolver {
             set points = points + $1
             where id = $2
           `,
-          [2 * realVote2, postId]
+          [realVote2, postId]
         );
       });
     } else if (!firstTimeORnot) {
@@ -114,21 +126,6 @@ export class PostResolver {
   ): Promise<PaginatedPosts> {
     const realLimit = Math.min(50, limit);
     const checkForHasMore = realLimit + 1;
-    // const Query = connection
-    //   .getRepository(Posts)
-    //   .createQueryBuilder("pag")
-    //   .leftJoinAndSelect("pag.creator", "user", 'user.id = pag."creatorId"')
-    //   .orderBy('user."createdAt"', "DESC")
-    //   .take(checkForHasMore);
-
-    // if (cursor) {
-    //   Query.where('pag."createdAt" < :cursor', {
-    //     cursor: new Date(parseInt(cursor)),
-    //   });
-    // }
-
-    // const posts = await Query.getMany();
-
     const param: any[] = [checkForHasMore];
 
     if (cursor) {
@@ -211,5 +208,60 @@ export class PostResolver {
     }
 
     return a?.value;
+  }
+
+  @Query(() => [Posts])
+  async SearchPost(@Arg("query") query: string) {
+    const formattedQuery = query.trim().replace(/ /g, " & ");
+    const blogs = await connection
+      .getRepository(Posts)
+      .createQueryBuilder()
+      .select("posts")
+      .from(Posts, "posts")
+      .where(`to_tsvector(posts.title) @@ to_tsquery(:query)`, {
+        query: `${formattedQuery}:*`,
+      })
+      .getMany();
+
+    return blogs;
+  }
+
+  @Query(() => PaginatedPosts)
+  async sortedPosts(
+    @Arg("limit", () => Int) limit: number,
+    @Arg("cursor", () => String, { nullable: true }) cursor: string | null
+  ): Promise<PaginatedPosts> {
+    const realLimit = Math.min(50, limit);
+    const checkForHasMore = realLimit + 1;
+
+    const param: any[] = [checkForHasMore];
+
+    if (cursor) {
+      param.push(new Date(parseInt(cursor)));
+    }
+
+    const posts = await connection.query(
+      `
+      select p.*,
+      json_build_object(
+        'id', u.id,
+        'username', u.username,
+        'email', u.email,
+        'createdAt', u."createdAt",
+        'updatedAt', u."updatedAt"
+        ) creator
+      from posts p
+      inner join public.user u on u.id = p."creatorId"
+      ${cursor ? `where p."createdAt" < $2` : ""}
+      order by p."points" DESC
+      limit $1
+    `,
+      param
+    );
+
+    return {
+      posts: posts.slice(0, realLimit),
+      hasMore: posts.length === checkForHasMore,
+    };
   }
 }
